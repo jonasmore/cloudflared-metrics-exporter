@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          OUTPUT_NAME="cloudflared-metrics-exporter-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT_NAME="${OUTPUT_NAME}.exe"
+          fi
+          
+          go build \
+            -ldflags "-X 'main.Version=${{ steps.version.outputs.VERSION }}' -X 'main.BuildTime=${BUILD_TIME}'" \
+            -o "${OUTPUT_NAME}"
+          
+          # Create checksum
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            sha256sum "${OUTPUT_NAME}" > "${OUTPUT_NAME}.sha256"
+          else
+            shasum -a 256 "${OUTPUT_NAME}" > "${OUTPUT_NAME}.sha256"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            cloudflared-metrics-exporter-*
+            !cloudflared-metrics-exporter-*.sha256
+          retention-days: 1
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksum-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cloudflared-metrics-exporter-*.sha256
+          retention-days: 1
+
+  create-release:
+    name: Create Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -name "cloudflared-metrics-exporter-*" -exec cp {} release-assets/ \;
+          ls -lah release-assets/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## Installation
+
+          ### Docker
+
+          ```bash
+          # From GitHub Container Registry
+          docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+          docker pull ghcr.io/${{ github.repository }}:latest
+
+          # From Docker Hub
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:${{ steps.version.outputs.VERSION }}
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:latest
+          ```
+
+          ### Binary Downloads
+
+          Download the appropriate binary for your platform below. All binaries include SHA256 checksums for verification.
+
+          **Verify checksum:**
+          ```bash
+          # Linux/macOS
+          sha256sum -c cloudflared-metrics-exporter-*.sha256
+
+          # Windows (PowerShell)
+          Get-FileHash cloudflared-metrics-exporter-windows-amd64.exe -Algorithm SHA256
+          ```
+
+          ### Quick Start
+
+          ```bash
+          # Linux/macOS
+          chmod +x cloudflared-metrics-exporter-*
+          ./cloudflared-metrics-exporter-* --metrics localhost:2000 --metricsfile metrics.jsonl
+
+          # Windows
+          cloudflared-metrics-exporter-windows-amd64.exe --metrics localhost:2000 --metricsfile metrics.jsonl
+          ```
+
+          ## What's Changed
+
+          See the [full changelog](https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.VERSION }}...main) for details.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-docker:
+    name: Build and Push Docker Images
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "MAJOR=$(echo ${VERSION} | cut -d. -f1)" >> $GITHUB_OUTPUT
+          echo "MINOR=$(echo ${VERSION} | cut -d. -f1-2)" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.MINOR }}
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.MAJOR }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:${{ steps.version.outputs.MINOR }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/cloudflared-metrics-exporter:${{ steps.version.outputs.MAJOR }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,10 +1,18 @@
 # Cloudflared Metrics Exporter
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/jonasmore/cloudflared-metrics-exporter?logo=docker&logoColor=white)](https://hub.docker.com/r/jonasmore/cloudflared-metrics-exporter)
+[![Docker Image Size](https://img.shields.io/docker/image-size/jonasmore/cloudflared-metrics-exporter/latest?logo=docker&logoColor=white)](https://hub.docker.com/r/jonasmore/cloudflared-metrics-exporter)
+[![GitHub Release](https://img.shields.io/github/v/release/jonasmore/cloudflared-metrics-exporter?logo=github)](https://github.com/jonasmore/cloudflared-metrics-exporter/releases)
+[![GitHub Downloads](https://img.shields.io/github/downloads/jonasmore/cloudflared-metrics-exporter/total?logo=github)](https://github.com/jonasmore/cloudflared-metrics-exporter/releases)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/jonasmore/cloudflared-metrics-exporter?logo=go)](go.mod)
+[![Platform Support](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)](https://github.com/jonasmore/cloudflared-metrics-exporter/releases)
+
 A standalone Go application that exports Cloudflare Tunnel (cloudflared) Prometheus metrics to JSONL (JSON Lines) format for quick analysis and monitoring. This tool scrapes metrics from cloudflared's `/metrics` endpoint and saves them in JSONL format for easy analysis, visualization, and troubleshooting.
 
 ## Overview
 
-This project is designed for quick analysis of cloudflared metrics. It scrapes metrics and saves them in JSONL format, which can then be imported into visualization tools like [cloudflared-metrics-exporter-vision](https://github.com/jonasmore/cloudflared-metrics-exporter-vision). While primarily intended for monitoring and troubleshooting over short periods, it can also be used for long-term monitoring with filtering, compression, and rotation/retention settings.
+This project is designed for quick analysis of cloudflared metrics. It scrapes metrics and saves them in JSONL format, which can then be visualized using [cloudflared-metrics-exporter-vision](https://cloudflared-metrics-exporter-vision.jonasmore.dev/). While primarily intended for monitoring and troubleshooting over short periods, it can also be used for long-term monitoring with filtering, compression, and rotation/retention settings.
 
 ## Features
 
@@ -24,17 +32,48 @@ For best results, run the exporter on the local machine or in the same local net
 
 ## Installation
 
-### From Source
+### Docker
+
+Pull the latest image from GitHub Container Registry or Docker Hub:
 
 ```bash
-git clone <repository>
-cd cloudflared-metrics-exporter
-go build -o cloudflared-metrics-exporter
+# From GitHub Container Registry
+docker pull ghcr.io/jonasmore/cloudflared-metrics-exporter:latest
+
+# From Docker Hub
+docker pull jonasmore/cloudflared-metrics-exporter:latest
+```
+
+Run the container:
+
+```bash
+docker run -d \
+  --name metrics-exporter \
+  -v /var/log/cloudflared:/var/log/cloudflared \
+  ghcr.io/jonasmore/cloudflared-metrics-exporter:latest \
+  --metrics host.docker.internal:2000 \
+  --metricsfile /var/log/cloudflared/metrics.jsonl \
+  --metricscompress
 ```
 
 ### Binary Release
 
-Download the latest binary from the [releases page](https://github.com/cloudflare/cloudflared-metrics-exporter/releases).
+Download pre-built binaries for your platform from the [releases page](https://github.com/jonasmore/cloudflared-metrics-exporter/releases).
+
+Available platforms:
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
+- Windows (amd64)
+
+Each release includes SHA256 checksums for verification.
+
+### From Source
+
+```bash
+git clone https://github.com/jonasmore/cloudflared-metrics-exporter
+cd cloudflared-metrics-exporter
+go build -o cloudflared-metrics-exporter
+```
 
 ## How It Works
 
@@ -314,7 +353,7 @@ services:
       - "2000:2000"
   
   metrics-exporter:
-    image: cloudflared-metrics-exporter
+    image: ghcr.io/jonasmore/cloudflared-metrics-exporter:latest
     command:
       - --metrics=cloudflared:2000
       - --metricsfile=/data/metrics.jsonl

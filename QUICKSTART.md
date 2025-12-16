@@ -18,13 +18,45 @@ Cloudflared Metrics Exporter is a tool for quick analysis of cloudflared metrics
 
 ## Prerequisites
 
-- Go 1.21+ (for building from source)
 - A running cloudflared instance with metrics enabled
 - Write access to a directory for storing metrics
+- **Option A**: Docker (recommended)
+- **Option B**: Go 1.21+ (for building from source)
 
-## Step 1: Build the Exporter
+## Step 1: Get the Exporter
+
+### Option A: Docker (Recommended)
+
+Pull the latest image:
 
 ```bash
+# From GitHub Container Registry
+docker pull ghcr.io/jonasmore/cloudflared-metrics-exporter:latest
+
+# Or from Docker Hub
+docker pull jonasmore/cloudflared-metrics-exporter:latest
+```
+
+### Option B: Download Binary
+
+Download pre-built binaries from the [releases page](https://github.com/jonasmore/cloudflared-metrics-exporter/releases):
+
+```bash
+# Linux (amd64)
+wget https://github.com/jonasmore/cloudflared-metrics-exporter/releases/latest/download/cloudflared-metrics-exporter-linux-amd64
+chmod +x cloudflared-metrics-exporter-linux-amd64
+mv cloudflared-metrics-exporter-linux-amd64 cloudflared-metrics-exporter
+
+# macOS (arm64 - Apple Silicon)
+wget https://github.com/jonasmore/cloudflared-metrics-exporter/releases/latest/download/cloudflared-metrics-exporter-darwin-arm64
+chmod +x cloudflared-metrics-exporter-darwin-arm64
+mv cloudflared-metrics-exporter-darwin-arm64 cloudflared-metrics-exporter
+```
+
+### Option C: Build from Source
+
+```bash
+git clone https://github.com/jonasmore/cloudflared-metrics-exporter
 cd cloudflared-metrics-exporter
 make build
 ```
@@ -43,7 +75,39 @@ You should see Prometheus-format metrics output.
 
 ## Step 3: Run the Exporter
 
-### Basic Usage (All Metrics)
+### Using Docker (Recommended)
+
+**Basic Usage:**
+
+```bash
+docker run -d \
+  --name metrics-exporter \
+  -v /tmp:/tmp \
+  ghcr.io/jonasmore/cloudflared-metrics-exporter:latest \
+  --metrics host.docker.internal:2000 \
+  --metricsfile /tmp/metrics.jsonl
+```
+
+**Production Setup with Compression:**
+
+```bash
+docker run -d \
+  --name metrics-exporter \
+  -v /var/log/cloudflared:/var/log/cloudflared \
+  --restart unless-stopped \
+  ghcr.io/jonasmore/cloudflared-metrics-exporter:latest \
+  --metrics host.docker.internal:2000 \
+  --metricsfile /var/log/cloudflared/metrics.jsonl \
+  --metricsinterval 60s \
+  --metricsfilter "cloudflared_tunnel_*,quic_client_*" \
+  --metricscompress
+```
+
+**Note**: Use `host.docker.internal` to access services on the host machine from Docker.
+
+### Using Binary
+
+**Basic Usage:**
 
 ```bash
 ./cloudflared-metrics-exporter \
@@ -51,7 +115,7 @@ You should see Prometheus-format metrics output.
   --metricsfile /tmp/metrics.jsonl
 ```
 
-### Recommended Production Setup
+**Production Setup:**
 
 ```bash
 ./cloudflared-metrics-exporter \
@@ -76,10 +140,6 @@ tail -f /tmp/metrics.jsonl | jq .
 # Count lines (each line = one metric sample)
 wc -l /tmp/metrics.jsonl
 ```
-
-## Step 5: Stop the Exporter
-
-Press `Ctrl+C` to gracefully shutdown.
 
 ## Common Use Cases
 
@@ -190,15 +250,17 @@ jq 'select(.name == "cloudflared_tunnel_ha_connections")' \
 
 ### Using cloudflared-metrics-exporter-vision
 
-Import your metrics into the visualization tool:
+Visualize your metrics using the web-based tool at **https://cloudflared-metrics-exporter-vision.jonasmore.dev/**
 
-```bash
-# Clone the visualization tool
-git clone https://github.com/jonasmore/cloudflared-metrics-exporter-vision
-cd cloudflared-metrics-exporter-vision
+Simply upload your JSONL file to create interactive charts and graphs for:
+- Tunnel connection metrics
+- QUIC client statistics
+- Request rates and latency
+- Historical trends and patterns
 
-# Follow the instructions in the vision repository
-```
+**Privacy Note**: All data is processed entirely in your browser - no metrics are uploaded to any server.
+
+No installation required - just open the URL and drag and drop your metrics file!
 
 ### Quick Analysis with jq and gnuplot
 
